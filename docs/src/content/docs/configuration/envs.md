@@ -260,7 +260,8 @@ Binds Xray proxy connections to a network interface, for example `wwan0` or
 `eth2`. This is useful on multi-WAN and multi-modem routers. The value must be
 the operating-system device name visible to the xray-checker process. When
 running in a container, use host networking or otherwise expose the interface
-inside the container.
+inside the container. For WireGuard proxies, the setting binds the UDP peer
+socket while the checker keeps the tunnel in userspace.
 
 ## Metrics
 

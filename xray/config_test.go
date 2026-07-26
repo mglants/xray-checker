@@ -326,10 +326,13 @@ func TestGenerateWireGuardConfigBuild(t *testing.T) {
 		}
 		found = true
 		if ob.StreamSettings != nil {
-			t.Errorf("wireguard outbound must not carry streamSettings")
+			t.Errorf("wireguard outbound without XRAY_INTERFACE must not carry streamSettings")
 		}
 		if _, hasAwg := ob.Settings["awg"]; hasAwg {
 			t.Errorf("plain wireguard must not emit an awg block (stock xray-core)")
+		}
+		if noKernelTun, ok := ob.Settings["noKernelTun"].(bool); !ok || !noKernelTun {
+			t.Errorf("wireguard must use userspace TUN, got noKernelTun=%v", ob.Settings["noKernelTun"])
 		}
 		if ob.Settings["secretKey"] == nil || ob.Settings["peers"] == nil {
 			t.Errorf("wireguard settings missing secretKey/peers: %v", ob.Settings)
@@ -337,5 +340,41 @@ func TestGenerateWireGuardConfigBuild(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected a wireguard outbound")
+	}
+}
+
+func TestGenerateWireGuardConfigBindsPeerSocketToInterface(t *testing.T) {
+	wg := &models.ProxyConfig{
+		Protocol: "wireguard", Name: "wg-bound", Server: "1.1.1.1", Port: 51820, Index: 0,
+		WGPrivateKey:    "WBkVvO3vdhF9VOaSokEQPSLpGQajKi2fpwKLODlySmk=",
+		WGPeerPublicKey: "xBsu74OtcatjpRMfW58muk/95FkaiSSYbZeM+6bRZ1Y=",
+		WGAddresses:     []string{"10.0.0.2/32"},
+		WGAllowedIPs:    []string{"0.0.0.0/0", "::/0"},
+	}
+
+	g := NewConfigGenerator("phy1-sta0")
+	configBytes, err := g.GenerateConfig([]*models.ProxyConfig{wg}, 10000, "none")
+	if err != nil {
+		t.Fatalf("GenerateConfig failed: %v", err)
+	}
+	if err := validateConfigBuild(configBytes); err != nil {
+		t.Fatalf("xray-core rejected interface-bound WireGuard config: %v\nconfig:\n%s", err, configBytes)
+	}
+
+	ss := streamSettingsOf(t, configBytes)
+	if _, ok := ss["network"]; ok {
+		t.Error("WireGuard streamSettings must be sockopt-only; network is protocol-managed")
+	}
+	if _, ok := ss["security"]; ok {
+		t.Error("WireGuard streamSettings must be sockopt-only; security is protocol-managed")
+	}
+	var sockopt struct {
+		Interface string `json:"interface"`
+	}
+	if err := json.Unmarshal(ss["sockopt"], &sockopt); err != nil {
+		t.Fatalf("failed to parse WireGuard streamSettings.sockopt: %v", err)
+	}
+	if sockopt.Interface != "phy1-sta0" {
+		t.Errorf("WireGuard sockopt.interface = %q, want %q", sockopt.Interface, "phy1-sta0")
 	}
 }
