@@ -60,7 +60,7 @@ func TestGenerateValidatedConfigPrunesUnbuildable(t *testing.T) {
 // silently ignore at runtime.
 func buildsWithXrayCore(t *testing.T, proxies []*models.ProxyConfig) []byte {
 	t.Helper()
-	g := NewConfigGenerator()
+	g := NewConfigGenerator("")
 	configBytes, err := g.GenerateConfig(proxies, 10000, "none")
 	if err != nil {
 		t.Fatalf("GenerateConfig failed: %v", err)
@@ -182,6 +182,58 @@ func TestGenerateVlessConfigStillBuilds(t *testing.T) {
 		Index:     0,
 	}
 	buildsWithXrayCore(t, []*models.ProxyConfig{proxy})
+}
+
+func TestGenerateConfigBindsProxyOutboundToInterface(t *testing.T) {
+	proxy := &models.ProxyConfig{
+		Protocol: "vless",
+		Server:   "example.com",
+		Port:     443,
+		Name:     "bound-vless",
+		UUID:     "00000000-0000-0000-0000-000000000000",
+		Type:     "tcp",
+		Security: "none",
+		Index:    0,
+	}
+
+	g := NewConfigGenerator("  wwan1  ")
+	configBytes, err := g.GenerateConfig([]*models.ProxyConfig{proxy}, 10000, "none")
+	if err != nil {
+		t.Fatalf("GenerateConfig failed: %v", err)
+	}
+	if err := validateConfigBuild(configBytes); err != nil {
+		t.Fatalf("xray-core rejected interface-bound config: %v\nconfig:\n%s", err, configBytes)
+	}
+
+	ss := streamSettingsOf(t, configBytes)
+	var sockopt struct {
+		Interface string `json:"interface"`
+	}
+	if err := json.Unmarshal(ss["sockopt"], &sockopt); err != nil {
+		t.Fatalf("failed to parse streamSettings.sockopt: %v", err)
+	}
+	if sockopt.Interface != "wwan1" {
+		t.Errorf("sockopt.interface = %q, want %q", sockopt.Interface, "wwan1")
+	}
+}
+
+func TestGenerateConfigOmitsSockoptWithoutInterface(t *testing.T) {
+	proxy := &models.ProxyConfig{
+		Protocol: "vless",
+		Server:   "example.com",
+		Port:     443,
+		Name:     "unbound-vless",
+		UUID:     "00000000-0000-0000-0000-000000000000",
+		Type:     "tcp",
+		Security: "none",
+		Index:    0,
+	}
+
+	configBytes := buildsWithXrayCore(t, []*models.ProxyConfig{proxy})
+	ss := streamSettingsOf(t, configBytes)
+	if _, ok := ss["sockopt"]; ok {
+		t.Error("streamSettings.sockopt must be omitted when XRAY_INTERFACE is empty")
+	}
 }
 
 func TestGenerateSocksHttpConfigsBuild(t *testing.T) {

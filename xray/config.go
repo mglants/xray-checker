@@ -12,10 +12,18 @@ import (
 	"github.com/xtls/xray-core/infra/conf/serial"
 )
 
-type ConfigGenerator struct{}
+type ConfigGenerator struct {
+	outboundInterface string
+}
 
-func NewConfigGenerator() *ConfigGenerator {
-	return &ConfigGenerator{}
+func NewConfigGenerator(outboundInterfaces ...string) *ConfigGenerator {
+	var outboundInterface string
+	if len(outboundInterfaces) > 0 {
+		outboundInterface = strings.TrimSpace(outboundInterfaces[0])
+	}
+	return &ConfigGenerator{
+		outboundInterface: outboundInterface,
+	}
 }
 
 func (g *ConfigGenerator) GenerateConfig(proxies []*models.ProxyConfig, startPort int, xrayLogLevel string) ([]byte, error) {
@@ -328,6 +336,11 @@ func (g *ConfigGenerator) generateStreamSettings(proxy *models.ProxyConfig) map[
 	ss := map[string]interface{}{
 		"network":  network,
 		"security": security,
+	}
+	if g.outboundInterface != "" {
+		ss["sockopt"] = map[string]interface{}{
+			"interface": g.outboundInterface,
+		}
 	}
 
 	if security == "tls" {
